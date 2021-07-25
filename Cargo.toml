@@ -1,0 +1,16 @@
+[package]
+name = "Ethe-rs"
+version = "0.1.0"
+edition = "2018"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "processthreadsapi",
+    "memoryapi",
+    "winnt",
+    "tlhelp32",
+    "handleapi",
+    "sysinfoapi",
+    "psapi",
+    "errhandlingapi",
+] }
