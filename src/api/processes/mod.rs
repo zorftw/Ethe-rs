@@ -27,6 +27,11 @@ pub struct NativeAllocation {
     _size: usize,
 }
 
+/// Remote object so that we may easily read/write external objects
+pub struct RemoteObject {
+    //TODO!
+}
+
 #[derive(Debug, Default)]
 pub struct ProcessEntry {
     pub name: String,

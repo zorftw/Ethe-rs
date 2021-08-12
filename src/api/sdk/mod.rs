@@ -4,6 +4,10 @@ use winapi::um::memoryapi::ReadProcessMemory;
 
 use super::processes::{self, NativeHandle};
 
+pub trait FromNative {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self;
+}
+
 #[repr(C)]
 pub struct JVMDictionary {
     pub table_size: i32,
@@ -35,6 +39,13 @@ pub struct JSymbol {
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct JArray<T> {
+    pub lenght: i32,
+    pub data: [T; 1],
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct JClass {
     padding_0000: [u8; 8],
     pub layout_helper: i32,
@@ -62,21 +73,50 @@ pub struct JClass {
     pub _transitive_interfaces: *mut usize,
     pub _method_ordering: *mut usize,
     pub _default_vtable_indices: *mut usize,
-    pub fields: *mut usize,
+    pub fields: *mut JArray<u16>,
 } //Size: 0x01B0
 
-impl JClass {
-    /// TODO: WRITE MACRO FOR THIS KIND OF FUNCTION
-    pub fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
+impl FromNative for JClass {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
         unsafe { (processes::read_class::<JClass>(handle, ptr as _).get() as *mut Self).read() }
     }
 }
 
-impl JSymbol {
-    pub fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
+impl FromNative for JSymbol {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
         unsafe { (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read() }
     }
+}
 
+impl<T> FromNative for JArray<T> {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
+        unsafe { (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read() }
+    }
+}
+
+impl<T> JArray<T> {
+    pub fn at(&self, i: i32) -> Option<T> {
+        if i >= 0 && i < self.lenght {
+            return Some(unsafe { self.data.as_ptr().offset(i as _).read() });
+        }
+
+        None
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lenght == 0
+    }
+
+    pub fn adr_at(&self, i: i32) -> *const T {
+        if i >= 0 && i < self.lenght {
+            return unsafe { self.data.as_ptr().offset(i as _) as *const T };
+        }
+
+        std::ptr::null()
+    }
+}
+
+impl JSymbol {
     pub fn to_string(&self, ptr: usize, handle: &NativeHandle) -> String {
         // buffer for our string
         // note that these strings don't seem to have an end denominator?

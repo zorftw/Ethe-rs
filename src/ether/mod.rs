@@ -1,4 +1,4 @@
-use std::fmt::Error;
+use std::{collections::HashMap, fmt::Error, hash::Hash};
 
 use winapi::shared::minwindef::MAX_PATH;
 
@@ -11,6 +11,25 @@ pub fn spawn_instance(
     dictionary: sdk::JVMDictionary,
     handle: processes::NativeHandle,
 ) -> Option<Error> {
+    {
+        let collection = collect_all_classes(&dictionary, &handle);
+
+        let minecraft_class = &collection.get("bao").expect("Not found!");
+
+        let fields_array = JArray::from_native(&handle, minecraft_class.fields);
+        println!("Fields size: {}", fields_array.lenght);
+    }
+
+    None
+}
+
+pub fn collect_all_classes(
+    dictionary: &sdk::JVMDictionary,
+    handle: &processes::NativeHandle,
+) -> HashMap<String, JClass> {
+
+    let mut classes: HashMap<String, JClass> = HashMap::new();
+
     for entry in iterate_classes(&dictionary, &handle) {
         let clazz = JClass::from_native(&handle, entry.klass);
 
@@ -21,16 +40,18 @@ pub fn spawn_instance(
             // us to the most retarded text you can find, not ideal, so lets limit the length of classnames to MAX_PATH like the god
             // bill gates intended
             if symbol.lenght < MAX_PATH as _ {
-                println!(
-                    "Class: {:p} with name {}",
-                    entry.klass,
-                    symbol.to_string(clazz.symbol as usize, &handle)
-                );
+                let name = symbol.to_string(clazz.symbol as usize, &handle);
+
+                if name.eq("bao") {
+                    println!("Minecraft: {:p}", entry.klass);
+                }
+
+                classes.insert(symbol.to_string(clazz.symbol as usize, &handle), clazz);
             }
         }
     }
 
-    None
+    classes
 }
 
 pub fn iterate_classes(
