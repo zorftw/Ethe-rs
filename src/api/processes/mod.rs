@@ -1,16 +1,31 @@
-use std::{vec};
+use std::vec;
 
 use winapi::um::{
     errhandlingapi::GetLastError,
     handleapi::CloseHandle,
-    memoryapi::ReadProcessMemory,
+    memoryapi::{ReadProcessMemory, VirtualAlloc, VirtualFree},
     processthreadsapi::OpenProcess,
     tlhelp32::{
         CreateToolhelp32Snapshot, Module32First, Module32Next, Process32First, Process32Next,
         MODULEENTRY32, PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPPROCESS,
     },
-    winnt::{HANDLE, PROCESS_ALL_ACCESS},
+    winnt::{HANDLE, MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, PROCESS_ALL_ACCESS},
 };
+
+/// Structure to handle native handles
+pub struct NativeHandle {
+    _handle: HANDLE,
+}
+
+/// Native implementation of memory allocation, this was made so that we can allocate big chunks of memory inside our own program  (outside of the program heap)
+/// this was causing issues with the Rust compiler not being able to allocate enough memory
+pub struct NativeAllocation {
+    /// Pointer to our base address
+    _memory: *mut u8,
+
+    /// Size of memory region
+    _size: usize,
+}
 
 #[derive(Debug, Default)]
 pub struct ProcessEntry {
@@ -23,6 +38,50 @@ pub struct ModuleEntry {
     pub name: String,
     pub base: usize,
     pub size: usize,
+}
+
+impl NativeAllocation {
+    pub fn new(size: usize) -> Self {
+        Self {
+            _memory: unsafe { VirtualAlloc(std::ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE) }
+                as _,
+            _size: size,
+        }
+    }
+
+    pub fn get(&self) -> *mut u8 {
+        self._memory
+    }
+
+    pub fn size(&self) -> usize {
+        self._size
+    }
+}
+
+impl NativeHandle {
+    pub fn new(handle: HANDLE) -> Self {
+        Self { _handle: handle }
+    }
+
+    pub fn get(&self) -> HANDLE {
+        self._handle
+    }
+}
+
+impl Drop for NativeAllocation {
+    fn drop(&mut self) {
+        unsafe {
+            VirtualFree(self._memory as _, self._size, MEM_RELEASE);
+        }
+    }
+}
+
+impl Drop for NativeHandle {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self._handle);
+        }
+    }
 }
 
 pub fn iterate_modules(process_id: u32) -> Vec<ModuleEntry> {
@@ -104,16 +163,33 @@ pub fn iterate_processes() -> Vec<ProcessEntry> {
     processes
 }
 
-pub fn read<T>(handle: HANDLE, address: usize, result: &mut T) {
+pub fn read<T>(handle: &NativeHandle, address: usize, result: &mut T) {
     unsafe {
         ReadProcessMemory(
-            handle,
+            handle.get(),
             address as _,
             result as *mut _ as _,
             std::mem::size_of::<T>(),
             std::ptr::null_mut(),
         );
     }
+}
+
+pub fn read_class<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
+    //let buffer: *mut T = vec![0 as i8; std::mem::size_of::<T>()].as_mut_ptr() as *mut _;
+    let buffer = NativeAllocation::new(std::mem::size_of::<T>());
+
+    unsafe {
+        ReadProcessMemory(
+            handle.get(),
+            address as _,
+            buffer.get() as _,
+            std::mem::size_of::<T>(),
+            std::ptr::null_mut(),
+        );
+    }
+
+    buffer
 }
 
 pub fn find_process(name: &str) -> Option<ProcessEntry> {
@@ -126,12 +202,12 @@ pub fn find_module(name: &str, process: Option<ProcessEntry>) -> Option<ModuleEn
         .find(|m| m.name.eq(name))
 }
 
-pub fn open_process(entry: &ProcessEntry) -> Option<HANDLE> {
+pub fn open_process(entry: &ProcessEntry) -> Option<NativeHandle> {
     unsafe {
         let handle = OpenProcess(PROCESS_ALL_ACCESS, 0, entry.pid);
 
         if handle as usize != 0x0 {
-            return Some(handle as HANDLE);
+            return Some(NativeHandle::new(handle as HANDLE));
         }
     }
 
