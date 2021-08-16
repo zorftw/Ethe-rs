@@ -1,4 +1,4 @@
-use std::iter::FromIterator;
+use std::{iter::FromIterator, ops::Mul};
 
 use winapi::um::memoryapi::ReadProcessMemory;
 
@@ -39,9 +39,26 @@ pub struct JSymbol {
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct JFieldInfo {
+    _shorts: [u16; 6],
+}
+
+pub enum JFieldOffset {
+    AccessFlagsOffset = 0,
+    NameIndexOffset,
+    SignatureIndexOffset,
+    InitvalIndexOffset,
+    LowPackedOffset,
+    HighPackedOffset,
+    FieldSlots,
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct JArray<T> {
     pub lenght: i32,
     pub data: [T; 1],
+    base: *mut Self,
 }
 
 #[repr(C)]
@@ -76,6 +93,16 @@ pub struct JClass {
     pub fields: *mut JArray<u16>,
 } //Size: 0x01B0
 
+pub struct FieldEntry {
+    pub field_info: JFieldInfo,
+}
+
+impl FromNative for JFieldInfo {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
+        unsafe { (processes::read_class::<JFieldInfo>(handle, ptr as _).get() as *mut Self).read() }
+    }
+}
+
 impl FromNative for JClass {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
         unsafe { (processes::read_class::<JClass>(handle, ptr as _).get() as *mut Self).read() }
@@ -90,14 +117,80 @@ impl FromNative for JSymbol {
 
 impl<T> FromNative for JArray<T> {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        unsafe { (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read() }
+        let mut array = unsafe { (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read() };
+        array.base = ptr;
+
+        array
+    }
+}
+
+impl FieldEntry {
+    pub fn new(jinfo: JFieldInfo) -> Self {
+        Self {
+            field_info: jinfo,
+        }
+    }
+}
+
+impl JClass {
+    pub fn iterate_fields(&self, handle: &NativeHandle) -> impl Iterator<Item = FieldEntry> {
+        let mut fields: Vec<FieldEntry> = Vec::new();
+        let fields_array = JArray::from_native(&handle, self.fields);
+
+        for i in 0..fields_array.lenght {
+            if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize {
+                continue;
+            }
+
+            let field_info = JFieldInfo::from_native(handle, fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _);
+            fields.push(FieldEntry::new(field_info));
+        }
+
+        fields.into_iter()
+    }
+}
+
+impl JFieldOffset {
+    pub fn value(&self) -> i32 {
+        match *self {
+            JFieldOffset::AccessFlagsOffset => 0,
+            JFieldOffset::NameIndexOffset => 1,
+            JFieldOffset::SignatureIndexOffset => 2,
+            JFieldOffset::InitvalIndexOffset => 3,
+            JFieldOffset::LowPackedOffset => 4,
+            JFieldOffset::HighPackedOffset => 5,
+            JFieldOffset::FieldSlots => 6,
+        }
+    }
+}
+
+impl JFieldInfo {
+    fn build_int_from_shorts(&self, low: u16, high: u16) -> i32 {
+        ((high << 16) | low) as _
+    }
+
+    pub fn offset(&self) -> u64 {
+        (self.build_int_from_shorts(self._shorts[JFieldOffset::LowPackedOffset.value() as usize], self._shorts[JFieldOffset::HighPackedOffset.value() as usize]) >> 2) as _
+    }
+    
+    pub fn has_offset(&self) -> bool {
+        (self._shorts[JFieldOffset::LowPackedOffset.value() as usize] & (1 << 0)) != 0
+    }
+
+    pub fn name_idx(&self) -> u16 {
+        self._shorts[JFieldOffset::NameIndexOffset.value() as usize]
+    }
+
+    pub fn sig_idx(&self) -> u16 {
+        self._shorts[JFieldOffset::SignatureIndexOffset.value() as usize]
     }
 }
 
 impl<T> JArray<T> {
-    pub fn at(&self, i: i32) -> Option<T> {
+    pub fn at(&self, i: i32, handle: &NativeHandle) -> Option<T> {
         if i >= 0 && i < self.lenght {
-            return Some(unsafe { self.data.as_ptr().offset(i as _).read() });
+            let result = processes::read_handeled::<T>(handle, self.base as usize + std::mem::size_of::<i32>() + std::mem::size_of::<T>().mul(i as usize));
+            unsafe { return Some((result.get() as *mut T).read()); }
         }
 
         None
@@ -109,7 +202,8 @@ impl<T> JArray<T> {
 
     pub fn adr_at(&self, i: i32) -> *const T {
         if i >= 0 && i < self.lenght {
-            return unsafe { self.data.as_ptr().offset(i as _) as *const T };
+            //return unsafe { self.data.as_ptr().offset(i as _) as *const T };
+            return (self.base as usize + std::mem::size_of::<i32>() + std::mem::size_of::<T>().mul(i as usize)) as _;
         }
 
         std::ptr::null()

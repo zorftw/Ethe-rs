@@ -16,8 +16,9 @@ pub fn spawn_instance(
 
         let minecraft_class = &collection.get("bao").expect("Not found!");
 
-        let fields_array = JArray::from_native(&handle, minecraft_class.fields);
-        println!("Fields size: {}", fields_array.lenght);
+        minecraft_class.iterate_fields(&handle).for_each(|entry| {
+            println!("      Field -> Name({}) + Sig({})", entry.field_info.name_idx(), entry.field_info.sig_idx());
+        })
     }
 
     None

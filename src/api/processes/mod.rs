@@ -180,6 +180,16 @@ pub fn read<T>(handle: &NativeHandle, address: usize, result: &mut T) {
     }
 }
 
+pub fn read_handeled<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
+    let buffer = NativeAllocation::new(std::mem::size_of::<T>());
+
+    unsafe {
+        ReadProcessMemory(handle.get(), address as _, buffer.get() as _, buffer.size(), std::ptr::null_mut());
+    }
+
+    buffer
+}
+
 pub fn read_class<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
     //let buffer: *mut T = vec![0 as i8; std::mem::size_of::<T>()].as_mut_ptr() as *mut _;
     let buffer = NativeAllocation::new(std::mem::size_of::<T>());
@@ -189,7 +199,7 @@ pub fn read_class<T>(handle: &NativeHandle, address: usize) -> NativeAllocation 
             handle.get(),
             address as _,
             buffer.get() as _,
-            std::mem::size_of::<T>(),
+            buffer._size,
             std::ptr::null_mut(),
         );
     }
