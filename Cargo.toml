@@ -1,5 +1,5 @@
 [package]
-name = "Ethe-rs"
+name = "ethe-rs"
 version = "0.1.0"
 edition = "2018"
 

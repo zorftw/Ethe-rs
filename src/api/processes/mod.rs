@@ -27,11 +27,6 @@ pub struct NativeAllocation {
     _size: usize,
 }
 
-/// Remote object so that we may easily read/write external objects
-pub struct RemoteObject {
-    //TODO!
-}
-
 #[derive(Debug, Default)]
 pub struct ProcessEntry {
     pub name: String,
@@ -180,11 +175,17 @@ pub fn read<T>(handle: &NativeHandle, address: usize, result: &mut T) {
     }
 }
 
-pub fn read_handeled<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
+pub fn read_exact<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
     let buffer = NativeAllocation::new(std::mem::size_of::<T>());
 
     unsafe {
-        ReadProcessMemory(handle.get(), address as _, buffer.get() as _, buffer.size(), std::ptr::null_mut());
+        ReadProcessMemory(
+            handle.get(),
+            address as _,
+            buffer.get() as _,
+            buffer.size(),
+            std::ptr::null_mut(),
+        );
     }
 
     buffer

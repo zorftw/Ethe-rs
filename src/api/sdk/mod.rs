@@ -1,4 +1,4 @@
-use std::{iter::FromIterator, ops::Mul};
+use std::ops::Mul;
 
 use winapi::um::memoryapi::ReadProcessMemory;
 
@@ -117,7 +117,9 @@ impl FromNative for JSymbol {
 
 impl<T> FromNative for JArray<T> {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut array = unsafe { (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read() };
+        let mut array = unsafe {
+            (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read()
+        };
         array.base = ptr;
 
         array
@@ -126,9 +128,7 @@ impl<T> FromNative for JArray<T> {
 
 impl FieldEntry {
     pub fn new(jinfo: JFieldInfo) -> Self {
-        Self {
-            field_info: jinfo,
-        }
+        Self { field_info: jinfo }
     }
 }
 
@@ -142,7 +142,10 @@ impl JClass {
                 continue;
             }
 
-            let field_info = JFieldInfo::from_native(handle, fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _);
+            let field_info = JFieldInfo::from_native(
+                handle,
+                fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _,
+            );
             fields.push(FieldEntry::new(field_info));
         }
 
@@ -170,9 +173,12 @@ impl JFieldInfo {
     }
 
     pub fn offset(&self) -> u64 {
-        (self.build_int_from_shorts(self._shorts[JFieldOffset::LowPackedOffset.value() as usize], self._shorts[JFieldOffset::HighPackedOffset.value() as usize]) >> 2) as _
+        (self.build_int_from_shorts(
+            self._shorts[JFieldOffset::LowPackedOffset.value() as usize],
+            self._shorts[JFieldOffset::HighPackedOffset.value() as usize],
+        ) >> 2) as _
     }
-    
+
     pub fn has_offset(&self) -> bool {
         (self._shorts[JFieldOffset::LowPackedOffset.value() as usize] & (1 << 0)) != 0
     }
@@ -189,8 +195,15 @@ impl JFieldInfo {
 impl<T> JArray<T> {
     pub fn at(&self, i: i32, handle: &NativeHandle) -> Option<T> {
         if i >= 0 && i < self.lenght {
-            let result = processes::read_handeled::<T>(handle, self.base as usize + std::mem::size_of::<i32>() + std::mem::size_of::<T>().mul(i as usize));
-            unsafe { return Some((result.get() as *mut T).read()); }
+            let result = processes::read_exact::<T>(
+                handle,
+                self.base as usize
+                    + std::mem::size_of::<i32>()
+                    + std::mem::size_of::<T>().mul(i as usize),
+            );
+            unsafe {
+                return Some((result.get() as *mut T).read());
+            }
         }
 
         None
@@ -203,7 +216,9 @@ impl<T> JArray<T> {
     pub fn adr_at(&self, i: i32) -> *const T {
         if i >= 0 && i < self.lenght {
             //return unsafe { self.data.as_ptr().offset(i as _) as *const T };
-            return (self.base as usize + std::mem::size_of::<i32>() + std::mem::size_of::<T>().mul(i as usize)) as _;
+            return (self.base as usize
+                + std::mem::size_of::<i32>()
+                + std::mem::size_of::<T>().mul(i as usize)) as _;
         }
 
         std::ptr::null()

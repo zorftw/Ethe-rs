@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Error, hash::Hash};
+use std::{collections::HashMap, fmt::Error};
 
 use winapi::shared::minwindef::MAX_PATH;
 
@@ -17,7 +17,11 @@ pub fn spawn_instance(
         let minecraft_class = &collection.get("bao").expect("Not found!");
 
         minecraft_class.iterate_fields(&handle).for_each(|entry| {
-            println!("      Field -> Name({}) + Sig({})", entry.field_info.name_idx(), entry.field_info.sig_idx());
+            println!(
+                "      Field -> Name({}) + Sig({})",
+                entry.field_info.name_idx(),
+                entry.field_info.sig_idx()
+            );
         })
     }
 
@@ -28,7 +32,6 @@ pub fn collect_all_classes(
     dictionary: &sdk::JVMDictionary,
     handle: &processes::NativeHandle,
 ) -> HashMap<String, JClass> {
-
     let mut classes: HashMap<String, JClass> = HashMap::new();
 
     for entry in iterate_classes(&dictionary, &handle) {
