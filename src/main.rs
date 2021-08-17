@@ -49,7 +49,7 @@ fn main() {
                                     std::mem::size_of::<sdk::JVMDictionary>(),
                                     std::ptr::null_mut(),
                                 );
-                                return Some(dictionary_buffer.read()); 
+                                return Some(dictionary_buffer.read());
                             };
                         })
                         .expect("Fuck!");

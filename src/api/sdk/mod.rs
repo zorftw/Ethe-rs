@@ -35,6 +35,7 @@ pub struct JSymbol {
     pub identity: i16,
     padding_0000: [u8; 4],
     pub text: *mut u8, //ptr to array that contains the actual unicode text
+    pub base: *mut Self,
 }
 
 #[repr(C)]
@@ -80,7 +81,7 @@ pub struct JClass {
     pub modifier_flags: i32,
     pub access_flags: i32,
     padding_0002: [u8; 56],
-    pub constant_pool: *mut usize,
+    pub constant_pool: *mut JConstantPool,
     padding_0003: [u8; 143],
     n0000081_f: i8,
     padding_0004: [u8; 16],
@@ -93,13 +94,44 @@ pub struct JClass {
     pub fields: *mut JArray<u16>,
 } //Size: 0x01B0
 
+#[repr(C)]
+#[derive(Debug)]
+pub struct JConstantPool {
+    padding_0000: [u8; 8],
+    pub tags: *const JArray<u8>,
+    pub cache: *const usize,
+    pub instance_klass: *const JClass,
+    pub operands: *const JArray<u16>,
+    pub resolved: *const JArray<JClass>,
+    pub major: u16,
+    pub minor: u16,
+    pub generic_signature_index: u16,
+    pub source_file_name_index: u16,
+    pub flags: u16,
+    pub length: i32,
+    pub saved: i32,
+    lock: *const usize,
+    base: *mut Self,
+} //0x50
+
 pub struct FieldEntry {
-    pub field_info: JFieldInfo,
+    pub _field_info: JFieldInfo,
+    pub name: String,
+    pub sig: String,
 }
 
 impl FromNative for JFieldInfo {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
         unsafe { (processes::read_class::<JFieldInfo>(handle, ptr as _).get() as *mut Self).read() }
+    }
+}
+
+impl FromNative for JConstantPool {
+    fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
+        let mut constant_pool = unsafe { (processes::read_class::<JConstantPool>(handle, ptr as _).get() as *mut Self).read() };
+        constant_pool.base = ptr;
+
+        constant_pool
     }
 }
 
@@ -111,7 +143,10 @@ impl FromNative for JClass {
 
 impl FromNative for JSymbol {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        unsafe { (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read() }
+        let mut symbol = unsafe { (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read() };
+        symbol.base = ptr;
+
+        symbol
     }
 }
 
@@ -127,8 +162,39 @@ impl<T> FromNative for JArray<T> {
 }
 
 impl FieldEntry {
-    pub fn new(jinfo: JFieldInfo) -> Self {
-        Self { field_info: jinfo }
+    pub fn new(jinfo: JFieldInfo, constant_pool: &JConstantPool, handle: &NativeHandle) -> Self {
+        let name = constant_pool.symbol(&handle, jinfo.name_idx() as _).expect("Unable to get symbol");
+        let signature = constant_pool.symbol(&handle, jinfo.sig_idx() as _).expect("Unable to get signature symbol");
+        
+        Self { 
+            _field_info: jinfo,
+            name: name.to_string(&handle),
+            sig: signature.to_string(&handle),
+        }
+    }
+}
+
+impl JConstantPool {
+
+    pub fn size(&self) -> usize {
+        0x50
+    }
+
+    // pub fn symbol_offset(&self, handle: &NativeHandle, which: isize) -> usize {
+    //     unsafe { ((self.base as usize + self.size()) as *mut *mut JSymbol).offset(which) as _}
+    // }
+    pub fn symbol(&self, handle: &NativeHandle, which: isize) -> Option<JSymbol> {
+        let address = unsafe { ((self.base as usize + self.size()) as *mut *mut JSymbol).offset(which) as usize};
+        let mut symbol_addy: usize = 0usize;
+
+        processes::read(handle, address, &mut symbol_addy);
+
+        if symbol_addy != 0usize {
+            //return Some(processes::read_class::<JSymbol>(handle, symbol_addy).get() as *mut Jsy);
+            return Some(JSymbol::from_native(&handle, symbol_addy as *mut _));
+        }
+
+        None
     }
 }
 
@@ -136,6 +202,8 @@ impl JClass {
     pub fn iterate_fields(&self, handle: &NativeHandle) -> impl Iterator<Item = FieldEntry> {
         let mut fields: Vec<FieldEntry> = Vec::new();
         let fields_array = JArray::from_native(&handle, self.fields);
+
+        let constant_pool = JConstantPool::from_native(&handle,self.constant_pool);
 
         for i in 0..fields_array.lenght {
             if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize {
@@ -146,7 +214,7 @@ impl JClass {
                 handle,
                 fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _,
             );
-            fields.push(FieldEntry::new(field_info));
+            fields.push(FieldEntry::new(field_info, &constant_pool, handle));
         }
 
         fields.into_iter()
@@ -169,7 +237,7 @@ impl JFieldOffset {
 
 impl JFieldInfo {
     fn build_int_from_shorts(&self, low: u16, high: u16) -> i32 {
-        ((high << 16) | low) as _
+        (((high as u32) << 16) | (low as u32)) as _
     }
 
     pub fn offset(&self) -> u64 {
@@ -226,7 +294,7 @@ impl<T> JArray<T> {
 }
 
 impl JSymbol {
-    pub fn to_string(&self, ptr: usize, handle: &NativeHandle) -> String {
+    pub fn to_string(&self, handle: &NativeHandle) -> String {
         // buffer for our string
         // note that these strings don't seem to have an end denominator?
         let mut buffer: Vec<u8> = Vec::new();
@@ -235,7 +303,7 @@ impl JSymbol {
         unsafe {
             ReadProcessMemory(
                 handle.get(),
-                (ptr + 0x0008) as _,
+                (self.base as usize + 0x0008) as _,
                 buffer.as_mut_ptr() as _,
                 buffer.len(),
                 std::ptr::null_mut(),

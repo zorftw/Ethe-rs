@@ -17,11 +17,7 @@ pub fn spawn_instance(
         let minecraft_class = &collection.get("bao").expect("Not found!");
 
         minecraft_class.iterate_fields(&handle).for_each(|entry| {
-            println!(
-                "      Field -> Name({}) + Sig({})",
-                entry.field_info.name_idx(),
-                entry.field_info.sig_idx()
-            );
+            println!("Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
         })
     }
 
@@ -44,13 +40,13 @@ pub fn collect_all_classes(
             // us to the most retarded text you can find, not ideal, so lets limit the length of classnames to MAX_PATH like the god
             // bill gates intended
             if symbol.lenght < MAX_PATH as _ {
-                let name = symbol.to_string(clazz.symbol as usize, &handle);
+                let name = symbol.to_string(&handle);
 
                 if name.eq("bao") {
                     println!("Minecraft: {:p}", entry.klass);
                 }
 
-                classes.insert(symbol.to_string(clazz.symbol as usize, &handle), clazz);
+                classes.insert(symbol.to_string(&handle), clazz);
             }
         }
     }
