@@ -31,9 +31,33 @@ pub fn spawn_instance(
         println!("Static fields: {:p}", render_info.static_fields);
 
         let minecraft_object = minecraft::Minecraft::new(render_info, &handle);
-        println!("{:x}", minecraft_object._address);
+        //println!("{:x}", minecraft_object._address);
 
         println!("World: {:x}", minecraft_object.get_world_pointer(&handle));
+
+        let mut player_entities_pointer: u32 = 0;
+        processes::read(
+            &handle,
+            (minecraft_object.get_world_pointer(&handle) as usize
+                + world
+                    .find_field_entry(&handle, "h", "Ljava/util/List;")
+                    .expect("Couldn't find playerEntities field")
+                    ._field_info
+                    .offset() as usize) as usize,
+            &mut player_entities_pointer,
+        );
+
+        println!("{:p}", player_entities_pointer as *mut java::JavaArray<i32>);
+
+        let player_entities = java::JavaArray::from_native(
+            &handle,
+            player_entities_pointer as *mut java::JavaArray<u32>,
+        );
+        println!(
+            "First player: {:x}",
+            player_entities.get_at(&handle, 0).expect("cringe")
+        );
+
         // const VIEWPORT_OFFSET: usize = 0x68; // hardcoded here but can be easily found using function above
         // const MODEL_VIEW_OFFSET: usize = 0x6c;
         // const PROJECTION_OFFSET: usize = 0x70;
@@ -43,7 +67,7 @@ pub fn spawn_instance(
 
         // println!("Static fields: {:p}", render_info.static_fields);
         // println!("Viewport: {:p} + Model view: {:p} + Projection: {:p}", viewport_address as *mut usize, modelview_address as *mut usize, projection_address as *mut usize);
-    
+
         // let mut viewport_pointer: u32 = 0;
         // processes::read(&handle, viewport_address, &mut viewport_pointer);
 

@@ -29,8 +29,8 @@ impl Minecraft {
         }
     }
 
-    pub fn get_world_pointer(&self, handle: &NativeHandle) -> i32 {
-        let mut result: i32 = 0;
+    pub fn get_world_pointer(&self, handle: &NativeHandle) -> u32 {
+        let mut result: u32 = 0;
 
         processes::read(
             &handle,

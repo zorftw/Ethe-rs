@@ -33,7 +33,8 @@ impl<T> JavaArray<T> {
             return None;
         }
 
-        let address = self.array + self.array_offset() + idx.mul(std::mem::size_of::<T>() as i32);
+        let address = (self.array + self.array_offset() + idx.mul(std::mem::size_of::<T>() as i32)) as u32;
+
         Some(unsafe {
             (processes::read_exact::<T>(&handle, address as usize).get() as *mut T).read()
         })
