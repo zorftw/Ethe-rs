@@ -4,6 +4,9 @@ use winapi::um::memoryapi::ReadProcessMemory;
 
 use super::processes::{self, NativeHandle};
 
+pub mod java;
+pub mod minecraft;
+
 pub trait FromNative {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self;
 }
@@ -63,7 +66,7 @@ pub struct JArray<T> {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JClass {
     padding_0000: [u8; 8],
     pub layout_helper: i32,
@@ -128,7 +131,9 @@ impl FromNative for JFieldInfo {
 
 impl FromNative for JConstantPool {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut constant_pool = unsafe { (processes::read_class::<JConstantPool>(handle, ptr as _).get() as *mut Self).read() };
+        let mut constant_pool = unsafe {
+            (processes::read_class::<JConstantPool>(handle, ptr as _).get() as *mut Self).read()
+        };
         constant_pool.base = ptr;
 
         constant_pool
@@ -143,7 +148,9 @@ impl FromNative for JClass {
 
 impl FromNative for JSymbol {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut symbol = unsafe { (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read() };
+        let mut symbol = unsafe {
+            (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read()
+        };
         symbol.base = ptr;
 
         symbol
@@ -163,10 +170,14 @@ impl<T> FromNative for JArray<T> {
 
 impl FieldEntry {
     pub fn new(jinfo: JFieldInfo, constant_pool: &JConstantPool, handle: &NativeHandle) -> Self {
-        let name = constant_pool.symbol(&handle, jinfo.name_idx() as _).expect("Unable to get symbol");
-        let signature = constant_pool.symbol(&handle, jinfo.sig_idx() as _).expect("Unable to get signature symbol");
-        
-        Self { 
+        let name = constant_pool
+            .symbol(&handle, jinfo.name_idx() as _)
+            .expect("Unable to get symbol");
+        let signature = constant_pool
+            .symbol(&handle, jinfo.sig_idx() as _)
+            .expect("Unable to get signature symbol");
+
+        Self {
             _field_info: jinfo,
             name: name.to_string(&handle),
             sig: signature.to_string(&handle),
@@ -175,7 +186,6 @@ impl FieldEntry {
 }
 
 impl JConstantPool {
-
     pub fn size(&self) -> usize {
         0x50
     }
@@ -184,7 +194,9 @@ impl JConstantPool {
     //     unsafe { ((self.base as usize + self.size()) as *mut *mut JSymbol).offset(which) as _}
     // }
     pub fn symbol(&self, handle: &NativeHandle, which: isize) -> Option<JSymbol> {
-        let address = unsafe { ((self.base as usize + self.size()) as *mut *mut JSymbol).offset(which) as usize};
+        let address = unsafe {
+            ((self.base as usize + self.size()) as *mut *mut JSymbol).offset(which) as usize
+        };
         let mut symbol_addy: usize = 0usize;
 
         processes::read(handle, address, &mut symbol_addy);
@@ -199,11 +211,27 @@ impl JConstantPool {
 }
 
 impl JClass {
+    pub fn find_field_entry(
+        &self,
+        handle: &NativeHandle,
+        name: &str,
+        sig: &str,
+    ) -> Option<FieldEntry> {
+        self.iterate_fields(&handle)
+            .find(|entry| entry.name.eq(name) && entry.sig.eq(sig))
+    }
+
+    pub fn dump_all_fields(&self, handle: &NativeHandle) {
+        self.iterate_fields(&handle).for_each(|entry| {
+            println!("  Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
+        });
+    }
+
     pub fn iterate_fields(&self, handle: &NativeHandle) -> impl Iterator<Item = FieldEntry> {
         let mut fields: Vec<FieldEntry> = Vec::new();
         let fields_array = JArray::from_native(&handle, self.fields);
 
-        let constant_pool = JConstantPool::from_native(&handle,self.constant_pool);
+        let constant_pool = JConstantPool::from_native(&handle, self.constant_pool);
 
         for i in 0..fields_array.lenght {
             if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize {
@@ -215,6 +243,33 @@ impl JClass {
                 fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _,
             );
             fields.push(FieldEntry::new(field_info, &constant_pool, handle));
+        }
+
+        if !self.super_klass.is_null() {
+            let mut clazz = JClass::from_native(&handle, self.super_klass);
+
+            loop {
+                let fields_array = JArray::from_native(&handle, clazz.fields);
+                let constant_pool = JConstantPool::from_native(&handle, clazz.constant_pool);
+
+                for i in 0..fields_array.lenght {
+                    if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize {
+                        continue;
+                    }
+        
+                    let field_info = JFieldInfo::from_native(
+                        handle,
+                        fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _,
+                    );
+                    fields.push(FieldEntry::new(field_info, &constant_pool, handle));
+                }
+
+                if clazz.super_klass.is_null() {
+                    break;
+                }
+
+                clazz = JClass::from_native(&handle, clazz.super_klass)
+            }
         }
 
         fields.into_iter()

@@ -14,11 +14,44 @@ pub fn spawn_instance(
     {
         let collection = collect_all_classes(&dictionary, &handle);
 
-        let minecraft_class = &collection.get("bao").expect("Not found!");
+        // let minecraft_class = &collection.get("bao").expect("Not found!");
 
-        minecraft_class.iterate_fields(&handle).for_each(|entry| {
-            println!("Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
-        })
+        // minecraft_class.iterate_fields(&handle).for_each(|entry| {
+        //     println!("Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
+        // })
+
+        println!("Minecraft:");
+        let render_info = &collection.get("bao").expect("Not found!");
+        render_info.dump_all_fields(&handle);
+
+        println!("World:");
+        let world = &collection.get("bjf").expect("Not found!");
+        world.dump_all_fields(&handle);
+
+        println!("Static fields: {:p}", render_info.static_fields);
+
+        let minecraft_object = minecraft::Minecraft::new(render_info, &handle);
+        println!("{:x}", minecraft_object._address);
+
+        println!("World: {:x}", minecraft_object.get_world_pointer(&handle));
+        // const VIEWPORT_OFFSET: usize = 0x68; // hardcoded here but can be easily found using function above
+        // const MODEL_VIEW_OFFSET: usize = 0x6c;
+        // const PROJECTION_OFFSET: usize = 0x70;
+        // let viewport_address = render_info.static_fields as usize + VIEWPORT_OFFSET;
+        // let modelview_address = render_info.static_fields as usize + MODEL_VIEW_OFFSET;
+        // let projection_address = render_info.static_fields as usize + PROJECTION_OFFSET;
+
+        // println!("Static fields: {:p}", render_info.static_fields);
+        // println!("Viewport: {:p} + Model view: {:p} + Projection: {:p}", viewport_address as *mut usize, modelview_address as *mut usize, projection_address as *mut usize);
+    
+        // let mut viewport_pointer: u32 = 0;
+        // processes::read(&handle, viewport_address, &mut viewport_pointer);
+
+        // println!("Viewport pointer: {:x}", viewport_pointer as usize);
+
+        // let viewport = java::JavaBuffer::from_native(&handle, viewport_pointer as *mut java::JavaBuffer<i32>);
+
+        // println!("Values: {} + {}", viewport.get(&handle, 2).expect("lol"), viewport.get(&handle, 3).expect("lol"));
     }
 
     None
@@ -44,6 +77,8 @@ pub fn collect_all_classes(
 
                 if name.eq("bao") {
                     println!("Minecraft: {:p}", entry.klass);
+                } else if name.contains("baj") {
+                    println!("{}", name);
                 }
 
                 classes.insert(symbol.to_string(&handle), clazz);
