@@ -139,6 +139,7 @@ pub fn pattern_scan_module(
     None
 }
 
+#[allow(dead_code)]
 pub fn pattern_scan_memory(handle: HANDLE, pattern: &Signature) -> Option<usize> {
     if pattern.to_bytes().len() == 0 {
         println!("Invalid pattern.");

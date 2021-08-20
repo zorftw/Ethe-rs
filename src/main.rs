@@ -1,8 +1,15 @@
 #[cfg(not(windows))]
 compile_error!("Ether-rs is exclusive to Windows at the moment");
 
-// declare extern crate
-extern crate winapi;
+// Compiler thinks we're not using it, when, infact, we are.
+#[allow(unused_imports, unused_attributes)]
+#[macro_use]
+use lazy_static;
+
+// Compiler thinks we're not using it, when, infact, we are.
+#[allow(unused_imports, unused_attributes)]
+#[macro_use]
+use win_overlay::utils;
 
 // our "api"
 mod api;

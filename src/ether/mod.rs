@@ -1,62 +1,110 @@
-use std::{collections::HashMap, fmt::Error};
+use std::{collections::HashMap, fmt::Error, sync::Mutex};
 
-use winapi::shared::minwindef::MAX_PATH;
+use winapi::shared::{d3d9types::D3DCOLOR_ARGB, minwindef::MAX_PATH};
 
-use crate::api::{
-    processes,
-    sdk::{self, *},
-};
+use crate::api::{processes, sdk::{*, self, activerenderinfo::world_to_screen, entity::{Vec2, Vec3}, minecraft::find_class}};
+
+lazy_static::lazy_static! {
+    pub static ref CLASSES: Mutex<HashMap<String, JClass>> = Mutex::new(HashMap::new());
+}
 
 pub fn spawn_instance(
     dictionary: sdk::JVMDictionary,
     handle: processes::NativeHandle,
 ) -> Option<Error> {
     {
-        let collection = collect_all_classes(&dictionary, &handle);
+        *CLASSES.lock().unwrap() = collect_all_classes(&dictionary, &handle);
 
-        // let minecraft_class = &collection.get("bao").expect("Not found!");
 
-        // minecraft_class.iterate_fields(&handle).for_each(|entry| {
-        //     println!("Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
-        // })
+        let minecraft_class = find_class("bao");
+        let minecraft_object = minecraft::Minecraft::new(&minecraft_class, &handle);
 
-        println!("Minecraft:");
-        let render_info = &collection.get("bao").expect("Not found!");
-        render_info.dump_all_fields(&handle);
+        let world = minecraft_object.get_world(&handle);
 
-        println!("World:");
-        let world = &collection.get("bjf").expect("Not found!");
-        world.dump_all_fields(&handle);
+        let mc_window =
+            win_overlay::utils::find_window(Some(win_overlay::native_str!("LWJGL")), None)
+                .expect("Couldn't find target window.");
+        let overlay = win_overlay::win_overlay::Overlay::create_overlay(mc_window);
 
-        println!("Static fields: {:p}", render_info.static_fields);
+        let render_info = activerenderinfo::RenderInfo::new();
 
-        let minecraft_object = minecraft::Minecraft::new(render_info, &handle);
-        //println!("{:x}", minecraft_object._address);
+        let model_view_buffer = render_info.get_modelview(&handle);
+        let projection_buffer = render_info.get_projection(&handle);
+        let viewport_buffer = render_info.get_viewport(&handle);
 
-        println!("World: {:x}", minecraft_object.get_world_pointer(&handle));
 
-        let mut player_entities_pointer: u32 = 0;
-        processes::read(
-            &handle,
-            (minecraft_object.get_world_pointer(&handle) as usize
-                + world
-                    .find_field_entry(&handle, "h", "Ljava/util/List;")
-                    .expect("Couldn't find playerEntities field")
-                    ._field_info
-                    .offset() as usize) as usize,
-            &mut player_entities_pointer,
-        );
+        overlay.draw(&|| {
 
-        println!("{:p}", player_entities_pointer as *mut java::JavaArray<i32>);
+             let model_view = model_view_buffer.as_vec(&handle);
+             let projection = projection_buffer.as_vec(&handle);
+             let viewport = viewport_buffer.as_vec(&handle);
 
-        let player_entities = java::JavaArray::from_native(
-            &handle,
-            player_entities_pointer as *mut java::JavaArray<u32>,
-        );
-        println!(
-            "First player: {:x}",
-            player_entities.get_at(&handle, 0).expect("cringe")
-        );
+             let render_position = render_info.get_render_position(&handle);
+
+             let players = world.get_players(&handle);
+
+            players.iter().for_each(|player| {
+
+                let mut feet_position: Vec2 = unsafe {core::mem::zeroed()};
+                let mut head_position: Vec2 = unsafe { core::mem::zeroed()};
+
+                let player_position = player.get_position(&handle);
+                let last_tick_position = player.get_last_tick_position(&handle);
+                let last_tick_head = Vec3 { x: last_tick_position.x, y: last_tick_position.y + 1.8f64, z: last_tick_position.z};
+
+                let player_head_position = player.get_head_position(&handle);
+
+                let x_feet = (last_tick_position.x + (player_position.x - last_tick_position.x) * 1.0f64) - render_position.x;
+                let y_feet = (last_tick_position.y + (player_position.y - last_tick_position.y) * 1.0f64) - render_position.y;
+                let z_feet = (last_tick_position.z + (player_position.z - last_tick_position.z) * 1.0f64) - render_position.z;
+
+                let x_head = (last_tick_head.x + (player_head_position.x - last_tick_head.x) * 1.0f64) - render_position.x;
+                let y_head = (last_tick_head.y + (player_head_position.y - last_tick_head.y) * 1.0f64) - render_position.y;
+                let z_head = (last_tick_head.z + (player_head_position.z - last_tick_head.z) * 1.0f64) - render_position.z;
+
+                let feet_pos = Vec3 { x: x_feet, y: y_feet, z: z_feet};
+                let head_pos = Vec3 { x: x_head, y: y_head, z: z_head};
+
+                if world_to_screen(
+                    feet_pos,
+                    &mut feet_position,
+                    &model_view,
+                    &projection,
+                    &viewport,
+                ) && world_to_screen(
+                    head_pos,
+                    &mut head_position,
+                    &model_view,
+                    &projection,
+                    &viewport,
+                ) {
+
+                    //println!("{:?} -> {:?}", feet_position, head_position);
+
+                    if feet_position.x >= 0f64
+                        && feet_position.y >= 0f64
+                        && head_position.x >= 0f64
+                        && head_position.y >= 0f64
+                    {
+
+                        let width = (feet_position.y - head_position.y) / 3f64;
+
+                        overlay.draw_box(
+                            (feet_position.x - (width / 2f64)) as _,
+                            head_position.y as _,
+                            (width * 2f64) as _,
+                            (feet_position.y - head_position.y) as _,
+                            1,
+                            D3DCOLOR_ARGB(255, 255, 0, 0),
+                        );
+                    }
+                }
+            });
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        });
+
+
+        //let players = world.get_players(&handle);
 
         // const VIEWPORT_OFFSET: usize = 0x68; // hardcoded here but can be easily found using function above
         // const MODEL_VIEW_OFFSET: usize = 0x6c;
@@ -121,7 +169,7 @@ pub fn iterate_classes(
 
     unsafe {
         (0..dictionary.table_size).for_each(|idx| {
-            let mut entry_native = processes::read_class::<DictionaryEntry>(
+            let mut entry_native = processes::read_class_original::<DictionaryEntry>(
                 handle,
                 dictionary.entries.offset(idx as _) as _,
             );
@@ -137,7 +185,7 @@ pub fn iterate_classes(
                 }
 
                 entry_native =
-                    processes::read_class::<DictionaryEntry>(handle, entry.read().next() as _);
+                    processes::read_class_original::<DictionaryEntry>(handle, entry.read().next() as _);
                 entry = entry_native.get() as *mut DictionaryEntry;
 
                 classes.push(entry.read());

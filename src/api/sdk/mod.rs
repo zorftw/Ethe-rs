@@ -4,8 +4,11 @@ use winapi::um::memoryapi::ReadProcessMemory;
 
 use super::processes::{self, NativeHandle};
 
+pub mod activerenderinfo;
+pub mod entity;
 pub mod java;
 pub mod minecraft;
+pub mod world;
 
 pub trait FromNative {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self;
@@ -47,6 +50,7 @@ pub struct JFieldInfo {
     _shorts: [u16; 6],
 }
 
+#[allow(dead_code)]
 pub enum JFieldOffset {
     AccessFlagsOffset = 0,
     NameIndexOffset,
@@ -97,6 +101,18 @@ pub struct JClass {
     pub fields: *mut JArray<u16>,
 } //Size: 0x01B0
 
+impl Default for JClass {
+    fn default() -> Self {
+        unsafe {
+            Self {
+                ..core::mem::zeroed()
+            }
+        }
+    }
+}
+
+unsafe impl Send for JClass {}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct JConstantPool {
@@ -125,15 +141,13 @@ pub struct FieldEntry {
 
 impl FromNative for JFieldInfo {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        unsafe { (processes::read_class::<JFieldInfo>(handle, ptr as _).get() as *mut Self).read() }
+        processes::read_class::<JFieldInfo>(handle, ptr as _)
     }
 }
 
 impl FromNative for JConstantPool {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut constant_pool = unsafe {
-            (processes::read_class::<JConstantPool>(handle, ptr as _).get() as *mut Self).read()
-        };
+        let mut constant_pool = processes::read_class::<JConstantPool>(handle, ptr as _);
         constant_pool.base = ptr;
 
         constant_pool
@@ -142,15 +156,13 @@ impl FromNative for JConstantPool {
 
 impl FromNative for JClass {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        unsafe { (processes::read_class::<JClass>(handle, ptr as _).get() as *mut Self).read() }
+        processes::read_class::<JClass>(handle, ptr as _)
     }
 }
 
 impl FromNative for JSymbol {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut symbol = unsafe {
-            (processes::read_class::<JSymbol>(handle, ptr as _).get() as *mut Self).read()
-        };
+        let mut symbol =  processes::read_class::<JSymbol>(handle, ptr as _);
         symbol.base = ptr;
 
         symbol
@@ -159,9 +171,7 @@ impl FromNative for JSymbol {
 
 impl<T> FromNative for JArray<T> {
     fn from_native(handle: &NativeHandle, ptr: *mut Self) -> Self {
-        let mut array = unsafe {
-            (processes::read_class::<JArray<T>>(handle, ptr as _).get() as *mut Self).read()
-        };
+        let mut array = processes::read_class::<JArray<T>>(handle, ptr as _);
         array.base = ptr;
 
         array
@@ -221,9 +231,15 @@ impl JClass {
             .find(|entry| entry.name.eq(name) && entry.sig.eq(sig))
     }
 
+    #[allow(unused)]
     pub fn dump_all_fields(&self, handle: &NativeHandle) {
         self.iterate_fields(&handle).for_each(|entry| {
-            println!("  Field: {}({}) @ {:p}", entry.name, entry.sig, entry._field_info.offset() as *mut usize);
+            println!(
+                "  Field: {}({}) @ {:p}",
+                entry.name,
+                entry.sig,
+                entry._field_info.offset() as *mut usize
+            );
         });
     }
 
@@ -253,10 +269,11 @@ impl JClass {
                 let constant_pool = JConstantPool::from_native(&handle, clazz.constant_pool);
 
                 for i in 0..fields_array.lenght {
-                    if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize {
+                    if fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as usize == 0usize
+                    {
                         continue;
                     }
-        
+
                     let field_info = JFieldInfo::from_native(
                         handle,
                         fields_array.adr_at(i * JFieldOffset::FieldSlots.value()) as _,
@@ -302,6 +319,7 @@ impl JFieldInfo {
         ) >> 2) as _
     }
 
+    #[allow(dead_code)]
     pub fn has_offset(&self) -> bool {
         (self._shorts[JFieldOffset::LowPackedOffset.value() as usize] & (1 << 0)) != 0
     }
@@ -316,6 +334,7 @@ impl JFieldInfo {
 }
 
 impl<T> JArray<T> {
+    #[allow(dead_code)]
     pub fn at(&self, i: i32, handle: &NativeHandle) -> Option<T> {
         if i >= 0 && i < self.lenght {
             let result = processes::read_exact::<T>(
@@ -324,14 +343,13 @@ impl<T> JArray<T> {
                     + std::mem::size_of::<i32>()
                     + std::mem::size_of::<T>().mul(i as usize),
             );
-            unsafe {
-                return Some((result.get() as *mut T).read());
-            }
+            return Some(result);
         }
 
         None
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.lenght == 0
     }

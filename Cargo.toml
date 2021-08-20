@@ -2,7 +2,7 @@
 name = "ethe-rs"
 version = "0.1.0"
 edition = "2018"
-
+ 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
     "processthreadsapi",
@@ -14,3 +14,5 @@ winapi = { version = "0.3", features = [
     "psapi",
     "errhandlingapi",
 ] }
+win-overlay = {path = "../Crates/win-overlay"}
+lazy_static = "1.4.0"

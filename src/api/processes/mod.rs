@@ -13,8 +13,9 @@ use winapi::um::{
 };
 
 /// Structure to handle native handles
+#[derive(Default,Clone)]
 pub struct NativeHandle {
-    _handle: HANDLE,
+    _handle: usize,
 }
 
 /// Native implementation of memory allocation, this was made so that we can allocate big chunks of memory inside our own program  (outside of the program heap)
@@ -59,12 +60,12 @@ impl NativeAllocation {
 }
 
 impl NativeHandle {
-    pub fn new(handle: HANDLE) -> Self {
+    pub fn new(handle: usize) -> Self {
         Self { _handle: handle }
     }
 
     pub fn get(&self) -> HANDLE {
-        self._handle
+        self._handle as _
     }
 }
 
@@ -79,7 +80,7 @@ impl Drop for NativeAllocation {
 impl Drop for NativeHandle {
     fn drop(&mut self) {
         unsafe {
-            CloseHandle(self._handle);
+            CloseHandle(self.get());
         }
     }
 }
@@ -175,15 +176,15 @@ pub fn read<T>(handle: &NativeHandle, address: usize, result: &mut T) {
     }
 }
 
-pub fn read_exact<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
-    let buffer = NativeAllocation::new(std::mem::size_of::<T>());
+pub fn read_exact<T>(handle: &NativeHandle, address: usize) -> T {
+    let mut buffer: T = unsafe { core::mem::zeroed() };
 
     unsafe {
         ReadProcessMemory(
             handle.get(),
             address as _,
-            buffer.get() as _,
-            buffer.size(),
+            &mut buffer as *mut _ as _,
+             std::mem::size_of::<T>(),
             std::ptr::null_mut(),
         );
     }
@@ -191,16 +192,37 @@ pub fn read_exact<T>(handle: &NativeHandle, address: usize) -> NativeAllocation 
     buffer
 }
 
-pub fn read_class<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
+pub fn read_class<T>(handle: &NativeHandle, address: usize) -> T {
+    //let buffer: *mut T = vec![0 as i8; std::mem::size_of::<T>()].as_mut_ptr() as *mut _;
+    //let buffer = NativeAllocation::new(std::mem::size_of::<T>());
+    let mut buffer: T = unsafe { core::mem::zeroed() };
+
+    unsafe {
+        ReadProcessMemory(
+            handle.get(),
+            address as _,
+            (&mut buffer as *mut T) as _,
+            std::mem::size_of::<T>(),
+            std::ptr::null_mut(),
+        );
+    }
+
+    buffer
+}
+
+pub fn read_class_original<T>(handle: &NativeHandle, address: usize) -> NativeAllocation {
     //let buffer: *mut T = vec![0 as i8; std::mem::size_of::<T>()].as_mut_ptr() as *mut _;
     let buffer = NativeAllocation::new(std::mem::size_of::<T>());
+    // let mut buffer: T = {
+    //     unsafe { core::mem::zeroed() }
+    // };
 
     unsafe {
         ReadProcessMemory(
             handle.get(),
             address as _,
             buffer.get() as _,
-            buffer._size,
+            buffer.size(),
             std::ptr::null_mut(),
         );
     }
@@ -223,7 +245,7 @@ pub fn open_process(entry: &ProcessEntry) -> Option<NativeHandle> {
         let handle = OpenProcess(PROCESS_ALL_ACCESS, 0, entry.pid);
 
         if handle as usize != 0x0 {
-            return Some(NativeHandle::new(handle as HANDLE));
+            return Some(NativeHandle::new(handle as usize));
         }
     }
 
