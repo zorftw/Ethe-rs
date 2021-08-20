@@ -79,8 +79,6 @@ pub fn spawn_instance(
                     &viewport,
                 ) {
 
-                    //println!("{:?} -> {:?}", feet_position, head_position);
-
                     if feet_position.x >= 0f64
                         && feet_position.y >= 0f64
                         && head_position.x >= 0f64
@@ -102,28 +100,6 @@ pub fn spawn_instance(
             });
             std::thread::sleep(std::time::Duration::from_millis(1));
         });
-
-
-        //let players = world.get_players(&handle);
-
-        // const VIEWPORT_OFFSET: usize = 0x68; // hardcoded here but can be easily found using function above
-        // const MODEL_VIEW_OFFSET: usize = 0x6c;
-        // const PROJECTION_OFFSET: usize = 0x70;
-        // let viewport_address = render_info.static_fields as usize + VIEWPORT_OFFSET;
-        // let modelview_address = render_info.static_fields as usize + MODEL_VIEW_OFFSET;
-        // let projection_address = render_info.static_fields as usize + PROJECTION_OFFSET;
-
-        // println!("Static fields: {:p}", render_info.static_fields);
-        // println!("Viewport: {:p} + Model view: {:p} + Projection: {:p}", viewport_address as *mut usize, modelview_address as *mut usize, projection_address as *mut usize);
-
-        // let mut viewport_pointer: u32 = 0;
-        // processes::read(&handle, viewport_address, &mut viewport_pointer);
-
-        // println!("Viewport pointer: {:x}", viewport_pointer as usize);
-
-        // let viewport = java::JavaBuffer::from_native(&handle, viewport_pointer as *mut java::JavaBuffer<i32>);
-
-        // println!("Values: {} + {}", viewport.get(&handle, 2).expect("lol"), viewport.get(&handle, 3).expect("lol"));
     }
 
     None
